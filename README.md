@@ -7,5 +7,6 @@ For now, read the following post with a detailed description of what is the inte
 http://supertechman.blogspot.com/2014/08/weather-station-revamp-personal-weather.html
 
 You will need to download and install additonal libraries:
-1. http://www.arduino.cc/playground/Code/Sensirion#SHT1x
+
+https://github.com/practicalarduino/SHT1x
 2. http://www.arduino.cc/playground/Code/Timer1
