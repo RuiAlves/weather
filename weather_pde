@@ -1,22 +1,3 @@
-/*Compile and upload with 0017 IDE only - revision 5*/
-
-/*
-You will need to download and install additonal libraries:
-1. http://www.arduino.cc/playground/Code/Sensirion#SHT1x
-2. http://www.arduino.cc/playground/Code/Timer1
-*/
-
-/*Main Changes on this version:
-1: Removed connection to LCD (there's a web interface anyway!)
-2: Added luminosity sensor
-3: Added Barometric Pressure sensor (NO, I seem to have a problem with the sensor)
-4: Optimized the code a little
-5: Cleaned up the code making it easier to read
-6: recalculation for rain (5 sec sampling is too fast, 
-I never got any rain readings. Increased to 30 seconds)
-7: Added a bit more comments to make the sensor setup more clear
-*/
-
 /*
 HARDWARE:
 ---------
@@ -31,31 +12,45 @@ http://www.arduino.cc/playground/Learning/PhotoResistor
 
 Arduino Diecimilla + Official Ethernet Shield 
 (old version, but should work with new version)
-
 */
 
+/***************LIBRARY LOADING SECTION******************/
+/*Library requirements for the webserver:*/
+#include <SPI.h>
 #include <Ethernet.h>
-#include <WebServer.h>
-#include <TimerOne.h>
-#include <SHT1x.h>
 
+/*Timer library required to generate an interrupt for rain gauge:*/
+#include <TimerOne.h>
+
+/*SHT1 temperature and humidity sensor library:*/
+#include <SHT1x.h>
+/***************END LIBRARY LOADING SECTION******************/
+
+/*TEMPERATURE AND HUMIDITY SENSOR CONNECTIONS*/
 #define dataPin  7
 #define clockPin 8
 SHT1x sht1x(dataPin, clockPin);
 
+/*WEATHER SENSOR CONNECTIONS*/
 #define PIN_ANEMOMETER 2
 #define PIN_RAIN 3
 #define PIN_VANE 5
 #define PIN_LIGHT 0
 
+/*WEATHER SENSOR VARIABLE DEFINITIONS*/
 volatile int numRevsAnemometer = 0;
 volatile int numClicksRain = 0;
 volatile float WindSpeed = 0;
 volatile float Percipitation = 0;
 volatile int WindDir = 0;
+
+/*TEMP AND HUMIDITY VARIABLE DEFINITIONS*/
 float temp_c = 0.0;
 float humidity;
+
+/*LUMINOSITY SENSOR VARIABLE DEFINITIONS*/
 int light;
+
 char* WindQ[2]={"1","2"};
 /*below counts the number of times we go to the 
 timer interrupt, allows for calcualtion
@@ -66,75 +61,93 @@ timer frequency for rain calculation
 e.g. top_times = 6 (* 5 = 30 seconds)*/
 int top_times = 10;
 
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xAD, 0xED };
-byte ip[] = { 10, 0, 0, 10 };
+/*WEBSERVER RELATED VARIABLE DEFINITIONS*/
+byte mac[] = { 0xD0, 0xAD, 0xBE, 0xEF, 0xAD, 0xED };
+IPAddress ip(192,168,1,177);
 //when connecting the ehternet sheild to a router, you need to 
 //assign the IP address you chose to the MAC address you chose
 //you can ping the shield from a computer on the network
 //to see if it's working
 
-/* This creates an instance of the webserver.  By specifying a prefix
- * of "/", all pages will be at the root of the server. */
-#define PREFIX "/"
-WebServer webserver(PREFIX, 80);
+// Initialize the Ethernet server library
+// with the IP address and port you want to use 
+// (port 80 is default for HTTP):
+EthernetServer server(80);
 
-void helloCmd(WebServer &server, WebServer::ConnectionType type, char *, bool)
-{
-   int i;
+void listenForEthernetClients() {
   
-  /* this line sends the standard "we're all OK" headers back to the
-     browser */
-  server.httpSuccess();
+  int i;
+  
+  EthernetClient client = server.available();
 
   /* if we're handling a GET or POST, we can output our data here.
      For a HEAD request, we just stop after outputting headers. */
-  if (type != WebServer::HEAD)  
-  {
-    server.println("Following is the wind speed: ");
-    server.println(WindSpeed);
-    server.println(" km/h<P>");
-    
-    server.println("Following is Precipitation: ");
-    server.println(Percipitation);
-    server.println(" mm/minute");
-    
-    server.println("<P>Following is WindDir: ");
-    
-    if (WindDir <= 27 && WindDir > 17) {WindQ[0] = "E"; WindQ[1] = "";}
-    else if (WindDir <= 50 && WindDir > 40) {WindQ[0] = "S"; WindQ[1] = "E";}
-    else if (WindDir <= 76 && WindDir > 66) {WindQ[0] = "S"; WindQ[1] = "";}
-    else if (WindDir <= 119 && WindDir > 109) {WindQ[0] = "N"; WindQ[1] = "E";}
-    else if (WindDir <= 162 && WindDir > 152) {WindQ[0] = "S"; WindQ[1] = "W";}
-    else if (WindDir <= 201 && WindDir > 191) {WindQ[0] = "N"; WindQ[1] = "";}
-    else if (WindDir <= 226 && WindDir > 216) {WindQ[0] = "N"; WindQ[1] = "W";}
-    else {WindQ[0] = "N"; WindQ[1] = "A";}
+  if (client) {
+    Serial.println("Got a client");
+    // an http request ends with a blank line
+    boolean currentLineIsBlank = true;
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        // if you've gotten to the end of the line (received a newline
+        // character) and the line is blank, the http request has ended,
+        // so you can send a reply
+        if (c == '\n' && currentLineIsBlank) {
+         // send a standard http response header
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-Type: text/html");
+          client.println();
+          // print the current readings, in HTML format:
+          client.println("Following is the wind speed: ");
+          client.println(WindSpeed);
+          client.println(" km/h<P>");
+          
+          client.println("Following is Precipitation: ");
+          client.println(Percipitation);
+          client.println(" mm/minute");
+          
+          client.println("<P>Following is WindDir: ");
+          
+          if (WindDir <= 27 && WindDir > 17) {WindQ[0] = "E"; WindQ[1] = "";}
+          else if (WindDir <= 50 && WindDir > 40) {WindQ[0] = "S"; WindQ[1] = "E";}
+          else if (WindDir <= 76 && WindDir > 66) {WindQ[0] = "S"; WindQ[1] = "";}
+          else if (WindDir <= 119 && WindDir > 109) {WindQ[0] = "N"; WindQ[1] = "E";}
+          else if (WindDir <= 162 && WindDir > 152) {WindQ[0] = "S"; WindQ[1] = "W";}
+          else if (WindDir <= 201 && WindDir > 191) {WindQ[0] = "N"; WindQ[1] = "";}
+          else if (WindDir <= 226 && WindDir > 216) {WindQ[0] = "N"; WindQ[1] = "W";}
+          else {WindQ[0] = "N"; WindQ[1] = "A";}
+            
+          for (i=0; i<2; i++) server.print(WindQ[i]);
       
-    for (i=0; i<2; i++) server.print(WindQ[i]);
-
-    server.println("<P><P>");
-    /*RAW data string to be used by other client programs*/
-      
-    server.print("Temperature: ");
-    server.print(temp_c, DEC);
-    server.print("C ");
-    server.print("<P>Humidity: ");
-    server.print(humidity);
-    server.println("%");
-    server.print("<P>Light Level: ");
-    server.print(light);
-      
-    server.println("<P>RAW: ");
-    server.println(WindSpeed);
-    server.println(Percipitation);
-    server.println(WindDir);
-    server.println(temp_c);
-    server.println(humidity);
-    server.println(light);      
+          client.println("<P><P>");
+          /*RAW data string to be used by other client programs*/
+            
+          client.print("Temperature: ");
+          client.print(temp_c, DEC);
+          client.print("C ");
+          client.print("<P>Humidity: ");
+          client.print(humidity);
+          client.println("%");
+          client.print("<P>Light Level: ");
+          client.print(light);
+            
+          client.println("<P>RAW: ");
+          client.println(WindSpeed);
+          client.println(Percipitation);
+          client.println(WindDir);
+          client.println(temp_c);
+          client.println(humidity);
+          client.println(light); 
+        }
+      }
+    }     
   }
 }
 
 void setup(){
-
+  
+  Serial.begin(9600);
+  
   pinMode(PIN_ANEMOMETER, INPUT);
   digitalWrite(PIN_ANEMOMETER, HIGH);
   attachInterrupt(0, countAnemometer, FALLING);
@@ -144,12 +157,15 @@ void setup(){
   attachInterrupt(1, countRain, FALLING);
   //ISR associated with pin2, goes to countAnemometer function and is triggered when pin goes
   //from HIGH to LOW
+  
   Ethernet.begin(mac, ip);
+  server.begin();
+  Serial.print("server is at ");
+  Serial.println(Ethernet.localIP());
   /* setup our default command that will be run when the user accesses
    * the root page on the server */
-  webserver.setDefaultCommand(&helloCmd);
+  // OLD - > webserver.setDefaultCommand(&helloCmd);
   /* start the webserver */
-  webserver.begin();
   
   Timer1.initialize(5000000);
   // initialize timer1, and set a 5 second period - we are sampling at 5 seconds intervals
@@ -163,8 +179,9 @@ void loop(){
   int len = 64;
   int i;  
 
-  /* process incoming connections one at a time forever */
-  webserver.processConnection(buff, &len);
+// listen for incoming Ethernet connections:
+  listenForEthernetClients();
+  
   // Read values from the sensor
   temp_c = sht1x.readTemperatureC();    
   humidity = sht1x.readHumidity();
